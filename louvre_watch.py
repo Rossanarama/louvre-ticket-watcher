@@ -1,3 +1,4 @@
+await notify("✅ Test: il bot Louvre è attivo e funzionante.")
 import os
 import asyncio
 import datetime as dt
