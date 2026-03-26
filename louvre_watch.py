@@ -6,7 +6,7 @@ from telegram import Bot
 
 # --- CONFIG ---
 DATE_TO_CHECK = dt.date(2026, 4, 3)
-TARGET_TIMES = {"18:00", "18:30"}
+TARGET_TIMES = {"17:00", "17:30"}
 URL = "https://ticket.louvre.fr/en"
 
 # Leggi i secrets dalle variabili d'ambiente passate dal workflow
