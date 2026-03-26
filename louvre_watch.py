@@ -1,4 +1,3 @@
-await notify("✅ Test: il bot Louvre è attivo e funzionante.")
 import os
 import asyncio
 import datetime as dt
@@ -23,6 +22,7 @@ async def notify(msg: str):
     await bot.send_message(chat_id=CHAT_ID, text=msg)
 
 async def main():
+    await notify("✅ Test: il bot Louvre è attivo e funzionante.")
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         ctx = await browser.new_context(timezone_id="Europe/Paris", locale="en-GB")
