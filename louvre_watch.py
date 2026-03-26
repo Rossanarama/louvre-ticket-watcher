@@ -13,23 +13,23 @@ URL = "https://ticket.louvre.fr/en"
 BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
 CHAT_ID = os.getenv("TG_CHAT_ID")
 
-async def notify(msg: str):
+def notify(msg: str):
     if not BOT_TOKEN or not CHAT_ID:
         # Se mancano le credenziali, non fallire il job: stampa e termina "pulito"
         print("WARN: Telegram BOT_TOKEN/CHAT_ID mancanti: nessuna notifica inviata.")
         return
     bot = Bot(token=BOT_TOKEN)
-    await bot.send_message(chat_id=CHAT_ID, text=msg)
+    bot.send_message(chat_id=CHAT_ID, text=msg)
 
 async def main():
-    await notify("✅ Test: il bot Louvre è attivo e funzionante.")
+    notify("✅ Test: il bot Louvre è attivo e funzionante.")
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         ctx = await browser.new_context(timezone_id="Europe/Paris", locale="en-GB")
         page = await ctx.new_page()
 
-        await page.goto(URL, wait_until="domcontentloaded")
-        await page.wait_for_timeout(2000)
+        page.goto(URL, wait_until="domcontentloaded")
+        page.wait_for_timeout(2000)
 
         # Versione minimale: controlla se compaiono subito i pulsanti 18:00/18:30
         times_found = set()
@@ -42,7 +42,7 @@ async def main():
                     times_found.add(text)
 
         if times_found:
-            await notify(
+            notify(
                 "🎉 BIGLIETTI LOUVRE DISPONIBILI!\n"
                 "📅 Venerdì 3 aprile 2026\n"
                 f"🕕 Slot: {', '.join(sorted(times_found))}\n"
@@ -51,7 +51,7 @@ async def main():
         else:
             print("Nessuno slot 18:00/18:30 trovato (ancora).")
 
-        await browser.close()
+        browser.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
