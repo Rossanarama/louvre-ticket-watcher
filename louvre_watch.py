@@ -46,7 +46,7 @@ async def main():
                 "🎉 BIGLIETTI LOUVRE DISPONIBILI!\n"
                 "📅 Venerdì 3 aprile 2026\n"
                 f"🕕 Slot: {', '.join(sorted(times_found))}\n"
-                "👉 https://ticket.louvre.fr"
+                "👉 Prenota qui (pagina data/ora): https://ticket.louvre.fr/billetterie/3396\n"
             )
         else:
             print("Nessuno slot 18:00/18:30 trovato (ancora).")
