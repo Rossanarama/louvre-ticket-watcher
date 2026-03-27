@@ -8,7 +8,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 # --- CONFIG ---
 URL = "https://ticket.louvre.fr/billetterie/3396"  # pagina con calendario + orari [1](https://ticket.louvre.fr/billetterie/3396)
 DATE_TO_CHECK = dt.date(2026, 4, 3)               # 3 aprile 2026
-TARGET_TIMES = {"18:00", "18:30"}                 # per test puoi mettere {"17:00"}
+TARGET_TIMES = {"16:00", "16:30"}                 # per test puoi mettere {"17:00"}
 
 BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
 CHAT_ID = os.getenv("TG_CHAT_ID")
