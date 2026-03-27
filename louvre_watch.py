@@ -10,24 +10,20 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 # ---------------------------
 # CONFIG
 # ---------------------------
-URL = "https://ticket.louvre.fr/billetterie/3396"  # date + time slots page [1](https://www.tripadvisor.com/ShowTopic-g187147-i14-k14363929-How_to_book_free_first_Friday_ticket_at_Louvre-Paris_Ile_de_France.html)
+URL = "https://ticket.louvre.fr/billetterie/3396"  # official time-slot selection page [1](https://www.tripadvisor.com/ShowTopic-g187147-i14-k14363929-How_to_book_free_first_Friday_ticket_at_Louvre-Paris_Ile_de_France.html)
+DATE_TO_CHECK = dt.date(2026, 4, 3)
+TARGET_TIMES = {"18:00", "18:30"}  # for test you can set {"16:30"}
 
-DATE_TO_CHECK = dt.date(2026, 4, 3)               # target date
-TARGET_TIMES = {"16:00", "16:30"}                 # target slots (use {"16:00"} for testing)
-
-# Telegram secrets passed via GitHub Actions env
 BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
 CHAT_ID = os.getenv("TG_CHAT_ID")
 
-# Optional debug artifacts (handy when selectors change)
-DEBUG_SCREENSHOT = False  # set True to capture screenshots in Actions logs/artifacts if you add upload step
+DEBUG = True  # set False once stable
 
 
 # ---------------------------
-# Helpers: Telegram
+# Telegram (sync; python-telegram-bot 13.x)
 # ---------------------------
 def notify(msg: str):
-    """Send Telegram message (sync)."""
     if not BOT_TOKEN or not CHAT_ID:
         print("WARN: Telegram not configured (TG_BOT_TOKEN/TG_CHAT_ID missing).")
         return
@@ -35,18 +31,19 @@ def notify(msg: str):
 
 
 # ---------------------------
-# Helpers: Time normalization
+# Time normalization
 # ---------------------------
 def normalize_time(s: str) -> str:
     """
     Normalize:
-      - '17:00' -> '17:00'
-      - '17h00' -> '17:00'
-      - '17 h 00' -> '17:00'
+      '16h30' -> '16:30'
+      '16:30' -> '16:30'
+      '16 h 30' -> '16:30'
     """
-    s = (s or "").strip().lower()
-    s = s.replace(" ", "").replace("h", ":")
-    m = re.search(r"(\d{1,2}):(\d{2})", s)
+    if not s:
+        return ""
+    t = s.strip().lower().replace(" ", "").replace("h", ":")
+    m = re.search(r"(\d{1,2}):(\d{2})", t)
     if not m:
         return ""
     hh = int(m.group(1))
@@ -55,7 +52,7 @@ def normalize_time(s: str) -> str:
 
 
 # ---------------------------
-# Helpers: French month parsing
+# French month parsing (calendar header is like "MARS 2026")
 # ---------------------------
 FR_MONTHS = {
     "JANVIER": 1,
@@ -71,7 +68,6 @@ FR_MONTHS = {
     "NOVEMBRE": 11,
     "DÉCEMBRE": 12, "DECEMBRE": 12
 }
-
 MONTH_HEADER_RE = re.compile(r"^\s*([A-ZÉÈÊËÀÂÎÏÔÛÙÜÇ]+)\s+(\d{4})\s*$")
 
 
@@ -82,9 +78,6 @@ class MonthYear:
 
 
 def parse_month_header(text: str) -> MonthYear | None:
-    """
-    Parse header like 'MARS 2026' into MonthYear(3, 2026)
-    """
     if not text:
         return None
     t = text.strip().upper()
@@ -99,54 +92,51 @@ def parse_month_header(text: str) -> MonthYear | None:
     return MonthYear(month=month, year=year)
 
 
-def month_diff(current: MonthYear, target: MonthYear) -> int:
-    """Target - current in months."""
-    return (target.year - current.year) * 12 + (target.month - current.month)
+def months_between(cur: MonthYear, tgt: MonthYear) -> int:
+    return (tgt.year - cur.year) * 12 + (tgt.month - cur.month)
 
 
 # ---------------------------
-# DOM finders: Calendar header + arrows
+# Calendar locators
 # ---------------------------
-def find_month_header_locator(page):
-    """
-    Find the calendar month header element.
-    On your screenshot it looks like: 'MARS 2026' centered above the grid.
-    We'll match any ALLCAPS French month + year.
-    """
-    # Playwright supports regex text selector: text=/.../
-    # This tries to match something like 'MARS 2026', 'AVRIL 2026', etc.
+def month_header(page):
+    # Match ALLCAPS month + year, e.g. "MARS 2026"
     return page.locator("text=/^[A-ZÉÈÊËÀÂÎÏÔÛÙÜÇ]+\\s+\\d{4}$/").first
 
 
-def find_calendar_container(page):
-    """
-    Try to find a container around the header that contains the two arrow buttons + day grid.
-    We'll walk up a few parents from the header and pick the first one that has >=2 buttons.
-    """
-    header = find_month_header_locator(page)
-    if header.count() == 0:
-        return None
+def ensure_calendar_visible(page):
+    if month_header(page).count() > 0:
+        return
+    # Try opening date picker
+    for txt in ["Sélectionner une date", "Select a date", "Date"]:
+        loc = page.locator(f"text={txt}")
+        if loc.count() > 0:
+            try:
+                loc.first.click(timeout=1500)
+                time.sleep(0.3)
+                break
+            except Exception:
+                pass
 
-    # Walk up 1..4 levels to find a container with at least two visible buttons (the arrows)
-    node = header
-    for _ in range(4):
+
+def find_calendar_container(page):
+    hdr = month_header(page)
+    if hdr.count() == 0:
+        return page
+    node = hdr
+    for _ in range(5):
         parent = node.locator("xpath=..")
         if parent.count() == 0:
             break
-        btns = parent.locator("button")
-        if btns.count() >= 2:
+        # if this parent has some buttons, it’s likely the calendar header container
+        if parent.locator("button").count() >= 2:
             return parent
         node = parent
-    # Fallback to page if nothing found
     return page
 
 
 def find_prev_next_buttons(container):
-    """
-    Within the container, find the two month navigation buttons by their x position:
-      leftmost = previous
-      rightmost = next
-    """
+    # choose leftmost and rightmost small visible buttons near header
     btns = container.locator("button")
     candidates = []
     for i in range(btns.count()):
@@ -157,9 +147,7 @@ def find_prev_next_buttons(container):
             box = b.bounding_box()
             if not box:
                 continue
-            # Only consider fairly small buttons (the round arrow buttons)
-            # (This avoids picking unrelated big buttons further down)
-            if box["width"] > 120 or box["height"] > 120:
+            if box["width"] > 140 or box["height"] > 140:
                 continue
             candidates.append((box["x"], b))
         except Exception:
@@ -169,117 +157,52 @@ def find_prev_next_buttons(container):
         return None, None
 
     candidates.sort(key=lambda x: x[0])
-    prev_btn = candidates[0][1]
-    next_btn = candidates[-1][1]
-    return prev_btn, next_btn
+    return candidates[0][1], candidates[-1][1]
 
 
-# ---------------------------
-# Calendar actions
-# ---------------------------
-def ensure_calendar_visible(page):
-    """
-    On your screenshot, the calendar is open with 'Sélectionner une date'.
-    Sometimes the page loads with calendar closed; click the 'Sélectionner une date' area if needed.
-    """
-    # If header exists, calendar is already visible
-    if find_month_header_locator(page).count() > 0:
-        return
-
-    # Try clicking the "Sélectionner une date" label or similar
-    candidates = [
-        "text=Sélectionner une date",
-        "text=Select a date",
-        "text=Date"
-    ]
-    for c in candidates:
-        loc = page.locator(c)
-        if loc.count() > 0:
-            try:
-                loc.first.click(timeout=1500)
-                time.sleep(0.3)
-                break
-            except Exception:
-                pass
-
-
-def go_to_target_month(page, target_date: dt.date, max_clicks=36) -> bool:
-    """
-    Navigate calendar to target month/year by clicking arrow buttons.
-    Returns True if reached, False if navigation buttons not found.
-    """
+def go_to_month(page, target_date: dt.date, max_clicks=36) -> bool:
     ensure_calendar_visible(page)
-
-    header = find_month_header_locator(page)
-    if header.count() == 0:
-        print("INFO: Calendar header not visible yet.")
+    hdr = month_header(page)
+    if hdr.count() == 0:
         return False
 
     container = find_calendar_container(page)
     prev_btn, next_btn = find_prev_next_buttons(container)
-
     if not prev_btn or not next_btn:
-        print("INFO: Could not locate month navigation arrows.")
         return False
 
     target = MonthYear(month=target_date.month, year=target_date.year)
 
     for _ in range(max_clicks):
-        hdr_text = header.inner_text().strip()
-        current = parse_month_header(hdr_text)
-        if not current:
-            # if header text not yet stable, wait a moment
+        txt = hdr.inner_text().strip()
+        cur = parse_month_header(txt)
+        if not cur:
             time.sleep(0.2)
             continue
 
-        diff = month_diff(current, target)
+        diff = months_between(cur, target)
         if diff == 0:
             return True
 
-        # Click next if target is in the future; prev if in the past
         try:
-            if diff > 0:
-                next_btn.click()
-            else:
-                prev_btn.click()
+            (next_btn if diff > 0 else prev_btn).click()
         except Exception:
-            # Could be blocked or overlay
-            time.sleep(0.3)
+            time.sleep(0.2)
+
         time.sleep(0.25)
 
-    print("INFO: Reached max clicks but did not land on target month.")
     return False
 
 
-def click_day_in_current_month(page, day: int) -> bool:
-    """
-    Click the day button. Avoid disabled days.
-    """
-    # Try aria-label first (some calendars provide full accessible label)
-    # French label patterns can vary; we'll try partials.
-    aria_candidates = [
-        f"{day} avril {DATE_TO_CHECK.year}",
-        f"{day} April {DATE_TO_CHECK.year}",
-        f"{day}/{DATE_TO_CHECK.month}/{DATE_TO_CHECK.year}",
-        DATE_TO_CHECK.isoformat()
-    ]
-    for a in aria_candidates:
-        loc = page.locator(f"button[aria-label*='{a}']")
-        if loc.count() > 0:
-            # Click the first enabled match
-            for i in range(loc.count()):
-                b = loc.nth(i)
-                if b.get_attribute("disabled") is None:
-                    b.click()
-                    time.sleep(0.4)
-                    return True
+def click_day(page, target_date: dt.date) -> bool:
+    # Try clicking a specific aria-label first (more stable if available)
+    # If the DOM does not have it, fallback to the day number.
+    day = target_date.day
 
-    # Fallback: click by exact day text within visible buttons, prefer enabled ones
-    day_text = str(day)
-    loc = page.locator("button").filter(has_text=re.compile(rf"^\s*{re.escape(day_text)}\s*$"))
+    # Fallback: click day number (but avoid disabled)
+    loc = page.locator("button").filter(has_text=re.compile(rf"^\s*{day}\s*$"))
     if loc.count() == 0:
-        # alternative: locate text then go to closest button
-        loc = page.locator(f"button:has-text('{day_text}')")
+        loc = page.locator(f"button:has-text('{day}')")
 
     for i in range(loc.count()):
         b = loc.nth(i)
@@ -288,42 +211,94 @@ def click_day_in_current_month(page, day: int) -> bool:
                 continue
             if b.get_attribute("disabled") is not None:
                 continue
-            # Some disabled days are shown with strikethrough but not disabled attribute;
-            # bounding box and click will fail. We'll try click in try/except.
             b.click()
-            time.sleep(0.4)
+            time.sleep(0.6)
             return True
         except Exception:
             continue
-
     return False
 
 
-def read_available_times(page) -> set[str]:
-    """
-    Read time-slot buttons on the page and normalize them to 'HH:MM'.
-    """
-    times = set()
-    buttons = page.locator("button")
+# ---------------------------
+# Time slots reading (robust)
+# ---------------------------
+CLICKABLE_SELECTORS = [
+    "button",
+    "[role='button']",
+    "a",
+    "[tabindex]"
+]
 
-    for i in range(buttons.count()):
+DISABLED_CLASS_RE = re.compile(r"(disabled|is-disabled|unavailable|inactive)", re.IGNORECASE)
+
+
+def is_disabled(el) -> bool:
+    try:
+        if el.get_attribute("disabled") is not None:
+            return True
+    except Exception:
+        pass
+    try:
+        if (el.get_attribute("aria-disabled") or "").lower() == "true":
+            return True
+    except Exception:
+        pass
+    try:
+        cls = el.get_attribute("class") or ""
+        if DISABLED_CLASS_RE.search(cls):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def wait_for_time_section(page):
+    # Your screenshot shows the section title "Sélectionner une heure"
+    # Wait for it to be visible before reading slots.
+    try:
+        page.locator("text=Sélectionner une heure").wait_for(timeout=7000)
+    except Exception:
+        # fallback: if UI language changes
         try:
-            txt = buttons.nth(i).inner_text()
-        except Exception:
-            continue
-
-        t = normalize_time(txt)
-        if not t:
-            continue
-
-        # ignore disabled slots
-        try:
-            if buttons.nth(i).get_attribute("disabled") is not None:
-                continue
+            page.locator("text=Select a time").wait_for(timeout=3000)
         except Exception:
             pass
 
-        times.add(t)
+
+def read_available_times(page) -> set[str]:
+    # Wait a bit for slots to render after date selection
+    wait_for_time_section(page)
+    time.sleep(0.5)
+
+    times = set()
+    all_found = []
+
+    for sel in CLICKABLE_SELECTORS:
+        els = page.locator(sel)
+        for i in range(els.count()):
+            el = els.nth(i)
+            try:
+                txt = el.inner_text()
+            except Exception:
+                continue
+
+            t = normalize_time(txt)
+            if not t:
+                continue
+
+            disabled = is_disabled(el)
+            all_found.append((t, disabled, sel, (txt or "").strip()))
+
+            if not disabled:
+                times.add(t)
+
+    if DEBUG:
+        # show what we saw (first 60 rows max)
+        preview = all_found[:60]
+        print("DEBUG: time candidates (normalized, disabled?, selector, raw):")
+        for row in preview:
+            print("  ", row)
+        print(f"DEBUG: available times (enabled) = {sorted(times)}")
 
     return times
 
@@ -342,46 +317,34 @@ def main():
         page.goto(URL, wait_until="domcontentloaded")
         page.wait_for_timeout(1500)
 
-        if DEBUG_SCREENSHOT:
-            page.screenshot(path="debug_loaded.png", full_page=True)
-
-        # 1) Navigate to target month/year
-        ok_month = go_to_target_month(page, DATE_TO_CHECK)
-        if not ok_month:
-            print("INFO: Cannot reach target month via arrows (date may not be open yet). Exiting cleanly.")
+        # 1) Navigate to correct month
+        if not go_to_month(page, DATE_TO_CHECK):
+            print("INFO: Could not reach target month (calendar navigation not available). Exiting cleanly.")
             browser.close()
             return
 
-        if DEBUG_SCREENSHOT:
-            page.screenshot(path="debug_target_month.png", full_page=True)
-
-        # 2) Click day
-        ok_day = click_day_in_current_month(page, DATE_TO_CHECK.day)
-        if not ok_day:
-            print("INFO: Day not clickable (possibly not released/available). Exiting cleanly.")
+        # 2) Click the day
+        if not click_day(page, DATE_TO_CHECK):
+            print("INFO: Day not clickable (not released/available). Exiting cleanly.")
             browser.close()
             return
 
-        if DEBUG_SCREENSHOT:
-            page.screenshot(path="debug_after_day.png", full_page=True)
-
-        # 3) Read available times
+        # 3) Read time slots AFTER the "select time" section appears
         available = read_available_times(page)
-        print(f"DEBUG: Times read ({len(available)}): {sorted(available)}")
 
         targets = {normalize_time(t) for t in TARGET_TIMES}
         found = sorted(targets.intersection(available))
 
         if found:
             notify(
-                "🎉 LOUVRE TICKETS FOUND!\n"
+                "🎉 LOUVRE TICKETS AVAILABLE!\n"
                 f"📅 {DATE_TO_CHECK.strftime('%d/%m/%Y')}\n"
                 f"🕕 Slots: {', '.join(found)}\n"
                 f"👉 Book here: {URL}"
             )
             print("INFO: Found target slot(s), notification sent.")
         else:
-            print("INFO: Target slots not found (yet).")
+            print("INFO: Target slot(s) not found (yet).")
 
         browser.close()
 
