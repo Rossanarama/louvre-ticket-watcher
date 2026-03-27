@@ -13,7 +13,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 URL = "https://ticket.louvre.fr/billetterie/3396"  # date + time slots page [1](https://www.tripadvisor.com/ShowTopic-g187147-i14-k14363929-How_to_book_free_first_Friday_ticket_at_Louvre-Paris_Ile_de_France.html)
 
 DATE_TO_CHECK = dt.date(2026, 4, 3)               # target date
-TARGET_TIMES = {"18:00", "18:30"}                 # target slots (use {"16:00"} for testing)
+TARGET_TIMES = {"16:00", "16:30"}                 # target slots (use {"16:00"} for testing)
 
 # Telegram secrets passed via GitHub Actions env
 BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
