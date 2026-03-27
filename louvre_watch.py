@@ -17,7 +17,7 @@ def dump_debug(page, name: str):
     page.screenshot(path=f"debug_{name}.png", full_page=True)
     with open(f"debug_{name}.html", "w", encoding="utf-8") as f:
         f.write(page.content())
-``
+
 
 # ---------------------------
 # CONFIG
