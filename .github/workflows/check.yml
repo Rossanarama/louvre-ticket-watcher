@@ -21,12 +21,12 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
-      - name: Run checker
+     - name: Run checker
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          DEBUG: "1"
         run: python louvre_watch.py
-
 
       - name: Upload debug artifacts
         if: always()
