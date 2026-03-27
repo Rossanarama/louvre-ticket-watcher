@@ -8,7 +8,7 @@ from telegram import Bot
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 
-DEBUG = True  # set False once solved
+DEBUG = os.getenv("DEBUG", "0") == "1"
 
 def dump_debug(page, name: str):
     """Save screenshot + HTML for later inspection in GitHub Actions artifacts."""
