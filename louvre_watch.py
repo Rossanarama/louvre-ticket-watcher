@@ -341,7 +341,11 @@ def main():
             browser.close()
             return
 
+        dump_debug(page, "after_day_click")
+        
         # 3) Read time slots AFTER the "select time" section appears
+        page.locator("text=Sélectionner une heure").wait_for(timeout=10000)
+        dump_debug(page, "time_grid_visible")
         available = read_available_times(page)
 
         targets = {normalize_time(t) for t in TARGET_TIMES}
