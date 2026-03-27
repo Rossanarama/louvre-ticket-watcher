@@ -21,7 +21,7 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
-     - name: Run checker
+    - name: Run checker
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
