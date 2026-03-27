@@ -8,7 +8,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 # --- CONFIG ---
 URL = "https://ticket.louvre.fr/billetterie/3396"  # pagina con calendario + orari [1](https://ticket.louvre.fr/billetterie/3396)
 DATE_TO_CHECK = dt.date(2026, 4, 3)               # 3 aprile 2026
-TARGET_TIMES = {"16:00", "16:30"}                 # per test puoi mettere {"17:00"}
+TARGET_TIMES = {"18:00", "18:30"}                 # per test puoi mettere {"17:00"}
 
 BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
 CHAT_ID = os.getenv("TG_CHAT_ID")
@@ -125,4 +125,75 @@ def select_date(page, d: dt.date):
                 pass
 
     # Vai al mese/anno target
+    goto_month(page, d.year, d.month)
 
+    # Clicca il giorno (attenzione: può esserci più di un "3" nella UI; prendiamo il primo visibile nel calendario)
+    day_str = str(d.day)
+    day_btn = page.get_by_role("button", name=day_str)
+    if day_btn.count() == 0:
+        # fallback: bottoni con testo
+        day_btn = page.locator(f"button:has-text('{day_str}')")
+
+    # Clicca il primo che sembra cliccabile
+    day_btn.first.click()
+    page.wait_for_timeout(800)
+
+
+def read_available_times(page) -> set:
+    """
+    Legge tutti i bottoni che assomigliano a orari e li normalizza.
+    """
+    times = set()
+    buttons = page.locator("button")
+    for i in range(buttons.count()):
+        txt = buttons.nth(i).inner_text()
+        txt_norm = normalize_time(txt)
+        if re.fullmatch(r"\d{2}:\d{2}", txt_norm):
+            # se il bottone è disabled, ignoralo
+            disabled = buttons.nth(i).get_attribute("disabled")
+            if not disabled:
+                times.add(txt_norm)
+    return times
+
+
+def main():
+    print(f"INFO: Controllo su {URL} per data {DATE_TO_CHECK} e orari {sorted(TARGET_TIMES)}")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        ctx = browser.new_context(locale="fr-FR", timezone_id="Europe/Paris")
+        page = ctx.new_page()
+
+        page.goto(URL, wait_until="domcontentloaded")
+        page.wait_for_timeout(1500)
+
+        # Seleziona data
+        select_date(page, DATE_TO_CHECK)
+
+        # Leggi orari
+        available = read_available_times(page)
+        print(f"DEBUG: Orari disponibili letti: {sorted(available)[:20]}{'…' if len(available) > 20 else ''}")
+
+        found = sorted(set(map(normalize_time, TARGET_TIMES)).intersection(available))
+        if found:
+            notify(
+                "🎉 BIGLIETTI LOUVRE DISPONIBILI!\n"
+                f"📅 {DATE_TO_CHECK.strftime('%d/%m/%Y')}\n"
+                f"🕕 Slot: {', '.join(found)}\n"
+                f"👉 Prenota qui: {URL}"
+            )
+            print("INFO: Slot trovati, notifica inviata.")
+        else:
+            print("INFO: Slot target non trovati (ancora).")
+
+        browser.close()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except PlaywrightTimeoutError as e:
+        print(f"ERROR: Timeout Playwright: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
