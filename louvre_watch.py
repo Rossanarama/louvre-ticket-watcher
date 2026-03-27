@@ -7,6 +7,18 @@ from dataclasses import dataclass
 from telegram import Bot
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
+
+DEBUG = True  # set False once solved
+
+def dump_debug(page, name: str):
+    """Save screenshot + HTML for later inspection in GitHub Actions artifacts."""
+    if not DEBUG:
+        return
+    page.screenshot(path=f"debug_{name}.png", full_page=True)
+    with open(f"debug_{name}.html", "w", encoding="utf-8") as f:
+        f.write(page.content())
+``
+
 # ---------------------------
 # CONFIG
 # ---------------------------
