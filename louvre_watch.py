@@ -11,9 +11,13 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 DEBUG = os.getenv("DEBUG", "0") == "1"
 
 def dump_debug(page, name: str):
-    """Save screenshot + HTML for later inspection in GitHub Actions artifacts."""
+    # Always create a trace line so artifacts aren't empty
+    with open("debug_times.txt", "a", encoding="utf-8") as f:
+        f.write(f"[HIT] {name}\n")
+
     if not DEBUG:
         return
+
     page.screenshot(path=f"debug_{name}.png", full_page=True)
     with open(f"debug_{name}.html", "w", encoding="utf-8") as f:
         f.write(page.content())
@@ -313,6 +317,7 @@ def read_available_times(page) -> set[str]:
         print(f"DEBUG: available times (enabled) = {sorted(times)}")
 
     return times
+
 
 
 # ---------------------------
